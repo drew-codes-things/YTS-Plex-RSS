@@ -32,29 +32,25 @@ YTS-Plex-RSS/
 └── LICENSE
 ```
 
-## Installation (Recommended: Virtual Environment)
+## Installation
 
-### On Linux / macOS
+### Linux (Recommended - Virtual Environment)
 
 ```bash
 git clone https://github.com/drew-codes-things/YTS-Plex-RSS.git
 cd YTS-Plex-RSS
 
-# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-### On Windows
+### macOS / Windows (Simple Method)
 
 ```bash
 git clone https://github.com/drew-codes-things/YTS-Plex-RSS.git
 cd YTS-Plex-RSS
-
-python -m venv venv
-venv\Scripts\activate
 
 pip install -r requirements.txt
 ```
