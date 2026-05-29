@@ -1,5 +1,6 @@
 from flask import Flask, Response, render_template_string, request, redirect
 from markupsafe import Markup
+from collections import Counter
 import json
 import os
 import re
@@ -472,7 +473,6 @@ def index():
     year_range = f"{min(years)} - {max(years)}" if years else "N/A"
     newest_year = str(max(years)) if years else "N/A"
 
-    from collections import Counter
     year_counts = sorted(Counter(years).items(), reverse=True)
     max_count = max((c for _, c in year_counts), default=1)
     year_chart = [(y, c, round(c / max_count * 100)) for y, c in year_counts]
