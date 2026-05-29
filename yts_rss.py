@@ -365,6 +365,8 @@ function filterTable() {
     return match;
   });
   currentPage = 1;
+  // Uncheck select-all when the filter changes to avoid operating on hidden rows.
+  document.getElementById('select-all').checked = false;
   paginate();
 }
 
@@ -422,7 +424,11 @@ function sortTable(col) {
 }
 
 function toggleAll(cb) {
-  document.querySelectorAll('.row-cb').forEach(c => c.checked = cb.checked);
+  // Only toggle rows that are currently visible (not hidden by the search filter).
+  visibleRows.forEach(row => {
+    const checkbox = row.querySelector('.row-cb');
+    if (checkbox) checkbox.checked = cb.checked;
+  });
   updateBulkBar();
 }
 

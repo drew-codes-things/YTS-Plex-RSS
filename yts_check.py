@@ -55,6 +55,13 @@ def save_mal_cache():
 
 
 def is_anime_on_mal(title, year):
+    """Return True only if the title matches a MAL anime entry of type 'Movie'
+    within 2 years of the given year.
+
+    Using limit=5 instead of 1 to reduce false positives from partial title
+    matches. Only entries where mal_entry["type"] == "Movie" are considered,
+    so TV series and OVAs with similar names do not flag real movies as anime.
+    """
     if not USE_MAL_FILTER:
         return False
 
@@ -63,12 +70,14 @@ def is_anime_on_mal(title, year):
         return MAL_CACHE[key]
 
     try:
-        params = {"q": title, "limit": 1}
+        params = {"q": title, "limit": 5}
         r = requests.get(MAL_SEARCH_URL, params=params, timeout=8)
         if r.status_code == 200:
             results = r.json().get("data", [])
-            if results:
-                mal_entry = results[0]
+            for mal_entry in results:
+                # Only treat as anime if the MAL entry is explicitly a Movie.
+                if mal_entry.get("type") != "Movie":
+                    continue
                 mal_year = mal_entry.get("year") or (mal_entry.get("aired", {}).get("from") or "")[:4]
                 try:
                     if mal_year and abs(int(mal_year) - year) <= 2:
@@ -103,8 +112,6 @@ def get_local_1080p_movies_from_plex():
         year = video.year if video.year else 0
         has_quality = any(media.videoResolution == "1080" for media in video.media)
         if has_quality:
-            # Store both the original lower title and the normalised form
-            # so the YTS match can use either.
             local.add((title.lower(), year))
     print(f"Found {len(local)} {QUALITY} movies in Plex.")
     return local
@@ -231,10 +238,17 @@ def save_missing(items):
 
 
 def prune_already_on_plex(local_movies, items):
+    """Remove entries from the missing list that are now present in Plex.
+
+    Uses the raw item title (e.g. 'Suzume (2022)') passed through
+    title_matches_plex which handles normalisation internally. The year
+    field on each item is used directly, keeping key format consistent
+    with how new items are added (raw title + year).
+    """
     before = len(items)
     pruned = [
         item for item in items
-        if not title_matches_plex(item["title"].rsplit(" (", 1)[0], item.get("year", 0), local_movies)
+        if not title_matches_plex(item["title"], item.get("year", 0), local_movies)
     ]
     removed = before - len(pruned)
     if removed:
@@ -251,7 +265,8 @@ def main():
     existing_missing = prune_already_on_plex(local_movies, existing_missing)
     save_missing(existing_missing)
 
-    existing_keys = {(item["title"].lower().rsplit(" (", 1)[0], item.get("year", 0)) for item in existing_missing}
+    # Key is (raw_title_lower, year) -- matches how new items are keyed below.
+    existing_keys = {(item["title"].lower().strip(), item.get("year", 0)) for item in existing_missing}
 
     print("\nStarting YTS scan...")
     yts_movies = fetch_movies()
@@ -279,7 +294,9 @@ def main():
                 skipped_plex += 1
                 continue
 
-            key = (title.lower().strip(), year)
+            # Key uses the display title that will be stored ("Title (year)") lowercased.
+            display_title = f"{title} ({year})"
+            key = (display_title.lower().strip(), year)
             if key in existing_keys:
                 skipped_plex += 1
                 continue
@@ -294,11 +311,11 @@ def main():
                 continue
 
             best = max(torrents, key=lambda t: int(t.get("size_bytes", 0)))
-            magnet = build_magnet(best["hash"], f"{title} ({year})")
+            magnet = build_magnet(best["hash"], display_title)
 
             new_items.append({
                 "id": str(uuid.uuid4()),
-                "title": f"{title} ({year})",
+                "title": display_title,
                 "size": best.get("size", "Unknown"),
                 "size_bytes": int(best.get("size_bytes", 0)),
                 "magnet": magnet,
