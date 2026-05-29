@@ -17,6 +17,7 @@ LIBRARY_NAME = os.getenv("LIBRARY_NAME", "Movies")
 MIN_YEAR = int(os.getenv("MIN_YEAR", 2025))
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", 1.2))
 USE_MAL_FILTER = os.getenv("USE_MAL_FILTER", "false").lower() == "true"
+QUALITY = os.getenv("QUALITY", "1080p")
 
 MISSING_JSON = "missing_1080p.json"
 SCAN_STATE_FILE = "scan_state.json"
@@ -25,7 +26,7 @@ MAL_CACHE_FILE = "mal_cache.json"
 BASE_URL = "https://movies-api.accel.li/api/v2/list_movies.json"
 MAL_SEARCH_URL = "https://api.jikan.moe/v4/anime"
 
-BRANDING = "Star's YTS → PLEX → RSS Tool"
+BRANDING = "Star's YTS -> PLEX -> RSS Tool"
 
 MAL_CACHE = {}
 
@@ -91,10 +92,10 @@ def get_local_1080p_movies_from_plex():
             continue
         title = video.title.strip()
         year = video.year if video.year else 0
-        has_1080p = any(media.videoResolution == "1080" for media in video.media)
-        if has_1080p:
+        has_quality = any(media.videoResolution == "1080" for media in video.media)
+        if has_quality:
             local.add((title.lower(), year))
-    print(f"Found {len(local)} 1080p movies in Plex.")
+    print(f"Found {len(local)} {QUALITY} movies in Plex.")
     return local
 
 
@@ -147,7 +148,7 @@ def fetch_movies():
         if start_page > 1:
             print(f"Resuming from page {start_page}...")
 
-    params = {"quality": "1080p", "limit": 50, "page": 1, "sort_by": sort_by, "order": order}
+    params = {"quality": QUALITY, "limit": 50, "page": 1, "sort_by": sort_by, "order": order}
     r = requests.get(BASE_URL, params=params, timeout=20)
     r.raise_for_status()
     data = r.json()
@@ -175,12 +176,12 @@ def fetch_movies():
             if MIN_YEAR > 0:
                 page_years = [m.get("year", 0) for m in page_movies if m.get("year")]
                 if page_years and min(page_years) < MIN_YEAR:
-                    tqdm.write(f"✅ Reached movies before {MIN_YEAR} — stopping early.")
+                    tqdm.write(f"[OK] Reached movies before {MIN_YEAR} -- stopping early.")
                     break
 
             time.sleep(SLEEP_SECONDS)
         except Exception as e:
-            tqdm.write(f"Error on page {page}: {e} — progress saved.")
+            tqdm.write(f"Error on page {page}: {e} -- progress saved.")
             break
     else:
         save_scan_state({"last_page": 1})
@@ -234,7 +235,7 @@ def main():
     filtered_other = 0
 
     if USE_MAL_FILTER:
-        print(f"\n🔍 Checking {len(yts_movies):,} movies against MyAnimeList...")
+        print(f"\nChecking {len(yts_movies):,} movies against MyAnimeList...")
         movie_iter = tqdm(yts_movies, desc="MAL Anime Filter", unit="movie")
     else:
         movie_iter = yts_movies
@@ -256,7 +257,7 @@ def main():
                 filtered_anime += 1
                 continue
 
-            torrents = [t for t in movie.get("torrents", []) if t.get("quality") == "1080p"]
+            torrents = [t for t in movie.get("torrents", []) if t.get("quality") == QUALITY]
             if not torrents:
                 filtered_other += 1
                 continue
