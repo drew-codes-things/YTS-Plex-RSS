@@ -2,6 +2,7 @@ import time
 import json
 import requests
 import os
+import re
 import uuid
 from urllib.parse import quote_plus
 from datetime import datetime
@@ -30,6 +31,12 @@ BRANDING = "Star's YTS -> PLEX -> RSS Tool"
 
 MAL_CACHE = {}
 
+
+def _normalise_title(title):
+    """Lowercase, strip punctuation/spaces for fuzzy comparison."""
+    return re.sub(r'[^a-z0-9]', '', title.lower())
+
+
 def load_mal_cache():
     global MAL_CACHE
     try:
@@ -38,12 +45,14 @@ def load_mal_cache():
     except Exception:
         MAL_CACHE = {}
 
+
 def save_mal_cache():
     try:
         with open(MAL_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(MAL_CACHE, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
+
 
 def is_anime_on_mal(title, year):
     if not USE_MAL_FILTER:
@@ -94,9 +103,27 @@ def get_local_1080p_movies_from_plex():
         year = video.year if video.year else 0
         has_quality = any(media.videoResolution == "1080" for media in video.media)
         if has_quality:
+            # Store both the original lower title and the normalised form
+            # so the YTS match can use either.
             local.add((title.lower(), year))
     print(f"Found {len(local)} {QUALITY} movies in Plex.")
     return local
+
+
+def title_matches_plex(yts_title, year, local_movies):
+    """Return True if yts_title/year is already in the Plex library.
+
+    Tries an exact lower-case match first, then a punctuation-stripped
+    fuzzy match so 'Spider-Man' matches 'Spider Man' etc.
+    """
+    lower = yts_title.lower()
+    if (lower, year) in local_movies:
+        return True
+    norm_yts = _normalise_title(yts_title)
+    for plex_title, plex_year in local_movies:
+        if plex_year == year and _normalise_title(plex_title) == norm_yts:
+            return True
+    return False
 
 
 def build_magnet(hash_str, title):
@@ -207,7 +234,7 @@ def prune_already_on_plex(local_movies, items):
     before = len(items)
     pruned = [
         item for item in items
-        if (item["title"].lower().rsplit(" (", 1)[0], item.get("year", 0)) not in local_movies
+        if not title_matches_plex(item["title"].rsplit(" (", 1)[0], item.get("year", 0), local_movies)
     ]
     removed = before - len(pruned)
     if removed:
@@ -248,8 +275,12 @@ def main():
                 filtered_other += 1
                 continue
 
+            if title_matches_plex(title, year, local_movies):
+                skipped_plex += 1
+                continue
+
             key = (title.lower().strip(), year)
-            if key in local_movies or key in existing_keys:
+            if key in existing_keys:
                 skipped_plex += 1
                 continue
 

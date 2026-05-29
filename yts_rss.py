@@ -229,7 +229,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Missing 1080p • tisL</title>
+    <title>Missing 1080p - tisL</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
     <style>{{ css }}</style>
 </head>
@@ -278,10 +278,10 @@ HTML_TEMPLATE = """
       <thead>
         <tr>
           <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleAll(this)"></th>
-          <th onclick="sortTable(1)">Title <span class="sort-arrow">↕</span></th>
-          <th onclick="sortTable(2)" style="text-align:center">Size <span class="sort-arrow">↕</span></th>
-          <th onclick="sortTable(3)" style="text-align:center">Year <span class="sort-arrow">↕</span></th>
-          <th onclick="sortTable(4)" style="text-align:center">Added <span class="sort-arrow">↕</span></th>
+          <th onclick="sortTable(1)">Title <span class="sort-arrow">v</span></th>
+          <th onclick="sortTable(2)" style="text-align:center">Size <span class="sort-arrow">v</span></th>
+          <th onclick="sortTable(3)" style="text-align:center">Year <span class="sort-arrow">v</span></th>
+          <th onclick="sortTable(4)" style="text-align:center">Added <span class="sort-arrow">v</span></th>
           <th style="text-align:center">Magnet</th>
           <th style="width:90px"></th>
         </tr>
@@ -459,8 +459,8 @@ def index():
     total_bytes = sum(item.get("size_bytes") or parse_size_bytes(item.get("size", "")) for item in items)
     total_size = fmt_bytes(total_bytes)
     years = [item.get("year", 0) for item in items if item.get("year")]
-    year_range = f"{min(years)}–{max(years)}" if years else "—"
-    newest_year = str(max(years)) if years else "—"
+    year_range = f"{min(years)} - {max(years)}" if years else "N/A"
+    newest_year = str(max(years)) if years else "N/A"
 
     from collections import Counter
     year_counts = sorted(Counter(years).items(), reverse=True)
@@ -499,6 +499,20 @@ def delete_bulk():
     return redirect("/")
 
 
+def _item_pub_date(item):
+    """Return RFC-2822 pub date from the item's 'added' timestamp, falling back to now."""
+    added = item.get("added", "")
+    if added:
+        try:
+            dt = datetime.fromisoformat(added)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        except (ValueError, TypeError):
+            pass
+    return datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+
+
 @app.route("/yts_missing.rss")
 def rss():
     items = load_missing()
@@ -507,15 +521,16 @@ def rss():
 
     rss_items = ""
     for item in items:
-        pub_date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+        pub_date = _item_pub_date(item)
         magnet = item["magnet"]
         title = item["title"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         infohash = extract_infohash(magnet)
+        year_val = item.get("year", "N/A")
 
         rss_items += f"""
   <item>
     <title>{title}</title>
-    <description>Size: {item.get("size", "Unknown")} | Year: {item.get("year", "—")}</description>
+    <description>Size: {item.get("size", "Unknown")} | Year: {year_val}</description>
     <link>{magnet}</link>
     <guid isPermaLink="false">{item["id"]}</guid>
     <pubDate>{pub_date}</pubDate>
@@ -528,7 +543,7 @@ def rss():
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:tor="http://toradio.org/2010/torrent">
   <channel>
     <title>Star's Missing 1080p YTS Movies</title>
-    <description>Auto-generated missing 1080p movies from YTS → Plex</description>
+    <description>Auto-generated missing 1080p movies from YTS -> Plex</description>
     <link>{base_url}</link>
     <atom:link href="{base_url}/yts_missing.rss" rel="self" type="application/rss+xml"/>
     <lastBuildDate>{datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")}</lastBuildDate>
@@ -540,7 +555,7 @@ def rss():
 
 
 if __name__ == "__main__":
-    print("Star's YTS → PLEX → RSS Tool")
-    print("   → Web UI   : http://127.0.0.1:5000")
-    print("   → RSS Feed : http://127.0.0.1:5000/yts_missing.rss")
+    print("Star's YTS -> PLEX -> RSS Tool")
+    print("   -> Web UI   : http://127.0.0.1:5000")
+    print("   -> RSS Feed : http://127.0.0.1:5000/yts_missing.rss")
     app.run(host="0.0.0.0", port=5000, debug=False)
