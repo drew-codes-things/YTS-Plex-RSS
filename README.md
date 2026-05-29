@@ -11,18 +11,16 @@ qBittorrent (or any RSS-capable torrent client).
 The project is split into two independent scripts that work together:
 
 ```
- yts_check.py  ──►  missing_1080p.json  ──►  yts_rss.py
- (nightly cron)     (shared data file)        (persistent web server)
+yts_check.py  ->  missing_1080p.json  ->  yts_rss.py
+(nightly cron)    (shared data file)       (persistent web server)
 ```
 
-1. **`yts_check.py`** — the data-gathering script.  
-   Run this (manually or on a schedule) to:
+1. **`yts_check.py`** - the data-gathering script. Run this (manually or on a schedule) to:
    - Connect to your Plex server and list every movie already in your library.
-   - Scan YTS for movies that match your quality/year filters but are *not* in Plex.
+   - Scan YTS for movies that match your quality/year filters but are not in Plex.
    - Write the results to `missing_1080p.json`.
 
-2. **`yts_rss.py`** — the web server / RSS feed.  
-   Run this as a persistent process. It:
+2. **`yts_rss.py`** - the web server / RSS feed. Run this as a persistent process. It:
    - Reads `missing_1080p.json` on every request (no restart needed after a check run).
    - Exposes a web UI at `http://<host>:5000` and an RSS feed at `http://<host>:5000/yts_missing.rss`.
    - Lets you remove titles from the list via the UI or in bulk.
@@ -48,19 +46,17 @@ cp .env.example .env
 
 ### Get your Plex token
 
-Sign in to [plex.tv](https://plex.tv), open any media item, click the
-⋮ menu → Get Info → View XML — the token is the `X-Plex-Token` value in
-the URL.
+Sign in to [plex.tv](https://plex.tv), open any media item, click the three-dot menu -> Get Info -> View XML. The token is the `X-Plex-Token` value in the URL.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Step 1 — populate the missing-movies list
+# Step 1 - populate the missing-movies list
 python yts_check.py
 
-# Step 2 — start the RSS / web server
+# Step 2 - start the RSS / web server
 python yts_rss.py
 ```
 
@@ -75,11 +71,11 @@ Copy `.env.example` to `.env` and set the values below.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `PLEX_USER_TOKEN` | string | — | Your Plex authentication token (**required**) |
+| `PLEX_USER_TOKEN` | string | (required) | Your Plex authentication token |
 | `PLEX_SERVER_NAME` | string | `Epos` | Friendly name of your Plex server as shown in plex.tv |
 | `LIBRARY_NAME` | string | `Movies` | Name of the Plex library section to scan |
 | `MIN_YEAR` | integer | `0` | Only include YTS movies from this year onwards; `0` = scan entire catalogue (slow, resumes across runs) |
-| `SLEEP_SECONDS` | float | `1.2` | Delay in seconds between YTS API page requests — increase if you hit rate limits |
+| `SLEEP_SECONDS` | float | `1.2` | Delay in seconds between YTS API page requests - increase if you hit rate limits |
 | `USE_MAL_FILTER` | boolean | `false` | Skip movies that appear on MyAnimeList (anime filter); queries `api.jikan.moe` |
 | `QUALITY` | string | `1080p` | Torrent quality to search for. Allowed values: `720p`, `1080p`, `2160p` |
 
@@ -113,7 +109,7 @@ so you can inspect past runs with `tail -f yts_check.log`.
 `yts_rss.py` needs to stay running so the RSS feed and web UI are always
 available. There are two common approaches:
 
-### Option A — systemd (recommended on Linux servers)
+### Option A - systemd (recommended on Linux servers)
 
 Create `/etc/systemd/system/yts-rss.service`:
 
@@ -143,7 +139,7 @@ sudo systemctl start yts-rss
 sudo systemctl status yts-rss
 ```
 
-### Option B — keep-alive in a terminal (quick/dev use)
+### Option B - keep-alive in a terminal (quick/dev use)
 
 ```bash
 # Linux / macOS
@@ -161,15 +157,15 @@ python yts_rss.py
 
 ```
 YTS-Plex-RSS/
-├── yts_check.py        # Data-gathering script (run on a schedule)
-├── yts_rss.py          # Web server + RSS feed (run persistently)
-├── .env                # Your local config (copy from .env.example)
-├── .env.example        # Template with all supported env vars
-├── requirements.txt    # Python dependencies
-├── missing_1080p.json  # Auto-generated: movies to download
-├── scan_state.json     # Auto-generated: YTS page resume state
-├── mal_cache.json      # Auto-generated: MAL lookup cache
-└── LICENSE
+    yts_check.py        # Data-gathering script (run on a schedule)
+    yts_rss.py          # Web server + RSS feed (run persistently)
+    .env                # Your local config (copy from .env.example)
+    .env.example        # Template with all supported env vars
+    requirements.txt    # Python dependencies
+    missing_1080p.json  # Auto-generated: movies to download
+    scan_state.json     # Auto-generated: YTS page resume state
+    mal_cache.json      # Auto-generated: MAL lookup cache
+    LICENSE
 ```
 
 ---
