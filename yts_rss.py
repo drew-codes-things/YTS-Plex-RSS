@@ -14,10 +14,16 @@ PAGE_SIZE = 50
 
 
 def load_missing():
+    if not os.path.exists(MISSING_JSON):
+        return []
     try:
         with open(MISSING_JSON, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError as e:
+        print(f"WARNING: {MISSING_JSON} is corrupted ({e}). Serving empty list.")
+        return []
+    except Exception as e:
+        print(f"WARNING: Could not read {MISSING_JSON}: {e}. Serving empty list.")
         return []
 
 
@@ -365,7 +371,6 @@ function filterTable() {
     return match;
   });
   currentPage = 1;
-  // Uncheck select-all when the filter changes to avoid operating on hidden rows.
   document.getElementById('select-all').checked = false;
   paginate();
 }
@@ -424,7 +429,6 @@ function sortTable(col) {
 }
 
 function toggleAll(cb) {
-  // Only toggle rows that are currently visible (not hidden by the search filter).
   visibleRows.forEach(row => {
     const checkbox = row.querySelector('.row-cb');
     if (checkbox) checkbox.checked = cb.checked;
