@@ -20,11 +20,61 @@ USE_MAL_FILTER = os.getenv("USE_MAL_FILTER", "false").lower() == "true"
 
 MISSING_JSON = "missing_1080p.json"
 SCAN_STATE_FILE = "scan_state.json"
+MAL_CACHE_FILE = "mal_cache.json"
 
 BASE_URL = "https://movies-api.accel.li/api/v2/list_movies.json"
 MAL_SEARCH_URL = "https://api.jikan.moe/v4/anime"
 
 BRANDING = "Star's YTS → PLEX → RSS Tool"
+
+MAL_CACHE = {}
+
+def load_mal_cache():
+    global MAL_CACHE
+    try:
+        with open(MAL_CACHE_FILE, "r", encoding="utf-8") as f:
+            MAL_CACHE = json.load(f)
+    except Exception:
+        MAL_CACHE = {}
+
+def save_mal_cache():
+    try:
+        with open(MAL_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(MAL_CACHE, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def is_anime_on_mal(title, year):
+    if not USE_MAL_FILTER:
+        return False
+
+    key = f"{title.strip().lower()}_{year}"
+    if key in MAL_CACHE:
+        return MAL_CACHE[key]
+
+    try:
+        params = {"q": title, "limit": 1}
+        r = requests.get(MAL_SEARCH_URL, params=params, timeout=8)
+        if r.status_code == 200:
+            results = r.json().get("data", [])
+            if results:
+                mal_entry = results[0]
+                mal_year = mal_entry.get("year") or (mal_entry.get("aired", {}).get("from") or "")[:4]
+                try:
+                    if mal_year and abs(int(mal_year) - year) <= 2:
+                        MAL_CACHE[key] = True
+                        save_mal_cache()
+                        time.sleep(0.35)
+                        return True
+                except (ValueError, TypeError):
+                    pass
+        MAL_CACHE[key] = False
+    except Exception:
+        MAL_CACHE[key] = False
+
+    save_mal_cache()
+    time.sleep(0.35)
+    return False
 
 
 def get_local_1080p_movies_from_plex():
@@ -49,7 +99,6 @@ def get_local_1080p_movies_from_plex():
 
 
 def build_magnet(hash_str, title):
-    """Build a high-quality magnet link with many public trackers (YTS-style)"""
     trackers = [
         "udp://tracker.opentrackr.org:1337/announce",
         "udp://tracker.torrent.eu.org:451/announce",
@@ -68,29 +117,6 @@ def build_magnet(hash_str, title):
     tr = "&tr=".join(quote_plus(t) for t in trackers)
     dn = quote_plus(title)
     return f"magnet:?xt=urn:btih:{hash_str}&dn={dn}&tr={tr}"
-
-
-def is_anime_on_mal(title, year):
-    if not USE_MAL_FILTER:
-        return False
-    try:
-        params = {"q": title, "limit": 1}
-        r = requests.get(MAL_SEARCH_URL, params=params, timeout=8)
-        if r.status_code != 200:
-            return False
-        results = r.json().get("data", [])
-        if not results:
-            return False
-        mal_entry = results[0]
-        mal_year = mal_entry.get("year") or (mal_entry.get("aired", {}).get("from") or "")[:4]
-        try:
-            if mal_year and abs(int(mal_year) - year) <= 2:
-                return True
-        except (ValueError, TypeError):
-            pass
-    except Exception:
-        pass
-    return False
 
 
 def load_scan_state():
@@ -189,6 +215,8 @@ def prune_already_on_plex(local_movies, items):
 
 
 def main():
+    global MAL_CACHE
+    load_mal_cache()
     local_movies = get_local_1080p_movies_from_plex()
     existing_missing = load_missing()
 
@@ -205,7 +233,13 @@ def main():
     filtered_anime = 0
     filtered_other = 0
 
-    for movie in yts_movies:
+    if USE_MAL_FILTER:
+        print(f"\n🔍 Checking {len(yts_movies):,} movies against MyAnimeList...")
+        movie_iter = tqdm(yts_movies, desc="MAL Anime Filter", unit="movie")
+    else:
+        movie_iter = yts_movies
+
+    for movie in movie_iter:
         try:
             title = movie.get("title")
             year = movie.get("year")
@@ -218,7 +252,7 @@ def main():
                 skipped_plex += 1
                 continue
 
-            if is_anime_on_mal(title, year):
+            if USE_MAL_FILTER and is_anime_on_mal(title, year):
                 filtered_anime += 1
                 continue
 
@@ -248,6 +282,8 @@ def main():
         existing_missing.extend(new_items)
         save_missing(existing_missing)
         print(f"Added {len(new_items)} new missing movies.")
+
+    save_mal_cache()
 
     print("\n" + "=" * 70)
     print(f"{BRANDING}")
