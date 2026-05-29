@@ -21,21 +21,47 @@ Scans your Plex library, identifies movies without a 1080p version, searches YTS
 - Clean, filterable RSS feed
 - Easy integration with *arr stack or any RSS-capable torrent client
 
-## Installation
+## File Structure
+
+```
+YTS-Plex-RSS/
+├── app.py
+├── requirements.txt
+├── config.py
+├── README.md
+└── LICENSE
+```
+
+## Installation (Recommended: Virtual Environment)
+
+### On Linux / macOS
 
 ```bash
 git clone https://github.com/drew-codes-things/YTS-Plex-RSS.git
 cd YTS-Plex-RSS
+
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### On Windows
+
+```bash
+git clone https://github.com/drew-codes-things/YTS-Plex-RSS.git
+cd YTS-Plex-RSS
+
+python -m venv venv
+venv\Scripts\activate
+
 pip install -r requirements.txt
 ```
 
 ## Configuration
 
-Edit `config.py` (or equivalent) with:
-- Your Plex server URL and token
-- Library section name(s)
-- Desired quality (currently hardcoded to 1080p)
-- Update interval
+Edit `config.py` with your Plex server URL, token, and library settings.
 
 ## Usage
 
@@ -43,16 +69,12 @@ Edit `config.py` (or equivalent) with:
 python app.py
 ```
 
-The RSS feed will be available at:
-`http://localhost:5000/rss`
-
-Add this URL to your torrent client or *arr app.
+The RSS feed will be available at `http://localhost:5000/rss`.
 
 ## Requirements
 
 - Python 3.8+
-- Plex Media Server with API access enabled
-- Internet connection
+- Plex Media Server with API access
 
 ## License
 
