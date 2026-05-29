@@ -1,100 +1,103 @@
-# YTS → Plex → RSS
+# YTS-Plex-RSS
 
-A two-part Python tool that scans your **Plex library** for missing 1080p movies, cross-references them against the **YTS catalogue**, and serves the results as a live **RSS feed** you can point directly at qBittorrent for auto-downloading.
+A Python tool that scans a Plex library for missing 1080p movies using the YTS catalogue and exposes them via a web dashboard and an RSS feed for qBittorrent auto-downloading.
 
----
+## Overview
 
-## How It Works
+The tool consists of two scripts:
 
-### `yts_check.py` — Scanner
-Connects to your Plex server via the Plex API and builds a list of every 1080p movie you already own. It then pages through the YTS API (with resume support so you can stop and continue full scans), compares the two lists, and writes any missing titles — along with their magnet links — to `missing_1080p.json`.
+- yts_check.py: Performs the scan against Plex and YTS, maintains missing_1080p.json
+- yts_rss.py: Flask application providing the web UI and RSS feed
 
-Key behaviours:
-- **Fast mode** — set `MIN_YEAR` to a recent year (e.g. `2024`) to only scan new releases, newest-first.
-- **Full mode** — set `MIN_YEAR=0` to scan the entire YTS catalogue; progress is saved to `scan_state.json` so crashes don't lose your place.
-- **Auto-prune** — titles that have appeared in Plex since the last scan are automatically removed from the missing list.
-- **Anime filter** — optionally queries the MyAnimeList/Jikan API to skip anime movies (`USE_MAL_FILTER=true`).
-- Builds clean magnet links with 13 public trackers attached.
+## API Endpoints
 
-### `yts_rss.py` — Web UI & RSS Server
-A Flask web app that reads `missing_1080p.json` and exposes two things:
+The Flask server (yts_rss.py) exposes the following endpoints:
 
-1. **Web dashboard** at `/` — a dark-themed UI showing all missing movies with sortable columns (title, size, year, date added), live search, paginated results (50/page), per-movie stats by year, and one-click or bulk removal.
-2. **RSS feed** at `/yts_missing.rss` — a valid RSS 2.0 feed with magnet enclosures and `tor:` namespace extensions, consumable directly by qBittorrent's RSS auto-downloader.
+- GET / : Serves the main web dashboard. Displays a table of missing movies with search, sorting, pagination, statistics, and bulk actions. Renders server-side using Jinja2 templates.
+- POST /delete/<item_id> : Removes a single movie entry by its UUID from the missing list and redirects to the dashboard.
+- POST /delete_bulk : Accepts a JSON array of IDs in the form field "ids" and removes multiple entries.
+- GET /yts_missing.rss : Returns a valid RSS 2.0 feed containing all missing movies. Each item includes title, description (size and year), magnet link as enclosure, and tor: namespace extensions for magnetURI and infoHash to support qBittorrent's auto-downloader.
 
----
+The RSS feed uses the namespace http://toradio.org/2010/torrent for torrent-specific metadata.
+
+## External APIs
+
+- YTS Movies API (https://movies-api.accel.li/api/v2/list_movies.json): Used to fetch 1080p movie listings. Supports parameters such as quality, limit (50 per page), page, sort_by (year or download_count), and order. The scanner uses pagination with resume support via scan_state.json.
+- Jikan API (https://api.jikan.moe/v4/anime): Optional anime filter endpoint. Queries by title and checks release year proximity to skip anime titles when USE_MAL_FILTER=true. Responses are cached in mal_cache.json.
+- Plex API (via plexapi library): Connects using X-Plex-Token to enumerate movies in the specified library section and check videoResolution == "1080".
+
+## Features
+
+- Configurable fast mode (MIN_YEAR) or full catalogue scan with progress saving
+- Automatic pruning of titles that appear in Plex
+- Optional MyAnimeList-based anime filtering with rate limiting and caching
+- Magnet links pre-built with 13 public trackers
+- Dark-themed responsive web UI with client-side sorting, filtering, and bulk operations
+- Standards-compliant RSS feed consumable by qBittorrent
 
 ## Setup
 
-### 1. Install dependencies
+### Prerequisites
+
+- Python 3.8+
+- Plex server with API token access
+- qBittorrent with RSS support (optional but recommended)
+
+### Installation
 
 ```bash
-pip install flask plexapi requests tqdm python-dotenv markupsafe
+git clone https://github.com/drew-codes-things/YTS-Plex-RSS.git
+cd YTS-Plex-RSS
+pip install -r requirements.txt
 ```
 
-### 2. Configure environment
+Create a requirements.txt file containing:
 
-Copy `.env.example` to `.env` and fill in your values:
+flask
+python-dotenv
+plexapi
+tqdm
+requests
+markupsafe
 
-```env
-PLEX_USER_TOKEN=your_plex_token_here
-PLEX_SERVER_NAME=YourServerName
+### Configuration
+
+Copy .env.example to .env and edit:
+
+```
+PLEX_USER_TOKEN=your_token
+PLEX_SERVER_NAME=YourServer
 LIBRARY_NAME=Movies
-MIN_YEAR=0          # 0 = full scan; set e.g. 2024 for fast/recent-only mode
-SLEEP_SECONDS=1.2   # delay between YTS API pages (be polite)
-USE_MAL_FILTER=false  # true = skip anime movies via Jikan/MAL
+MIN_YEAR=2025
+SLEEP_SECONDS=1.2
+USE_MAL_FILTER=false
 ```
 
-> **Finding your Plex token:** Go to any media item in Plex Web → ⋮ → Get Info → View XML. The token is the `X-Plex-Token` value in the URL.
+To obtain a Plex token: In Plex Web, select any media item, click Get Info, then View XML. The X-Plex-Token value in the resulting URL is the required token.
 
-### 3. Run the scanner
+## Running
 
-```bash
+Run the scanner periodically:
+
 python yts_check.py
-```
 
-This produces/updates `missing_1080p.json`. Run it periodically (e.g. via cron) to keep the list fresh.
+Start the server:
 
-### 4. Start the web server
-
-```bash
 python yts_rss.py
-```
 
-The app starts on `http://0.0.0.0:5000`.
+Access the dashboard at http://localhost:5000
 
----
+Subscribe to the RSS feed at http://localhost:5000/yts_missing.rss inside qBittorrent.
 
-## Using with qBittorrent
+## Project Structure
 
-1. Open qBittorrent → **View → RSS Reader**
-2. Add a new feed: `http://<your-server-ip>:5000/yts_missing.rss`
-3. Set up an **Auto Downloading Rule** matching all items in the feed
-4. qBittorrent will pick up new entries automatically
-5. Once a movie downloads and appears in Plex, re-run `yts_check.py` — it will prune it from the list and the RSS feed
-
----
-
-## File Overview
-
-| File | Purpose |
-|---|---|
-| `yts_check.py` | Scans Plex + YTS, writes `missing_1080p.json` |
-| `yts_rss.py` | Flask server — web UI + RSS feed |
-| `missing_1080p.json` | Generated — list of missing movies with magnets |
-| `scan_state.json` | Generated — stores resume page for full scans |
-| `.env.example` | Template for environment variables |
-
----
-
-## Notes
-
-- The YTS API endpoint used is `movies-api.accel.li` (a public mirror).
-- The RSS feed uses the `tor:` namespace (`http://toradio.org/2010/torrent`) for magnet URI and infohash fields — this is what qBittorrent reads for auto-downloading.
-- Run `yts_rss.py` behind a reverse proxy (e.g. Nginx + Tailscale) if you want to access it remotely.
-
----
+- yts_check.py - Scanner and data processor
+- yts_rss.py - Flask web and RSS server
+- missing_1080p.json - Generated list of missing items
+- scan_state.json - Resume state for full scans
+- mal_cache.json - Cached anime detection results
+- .env.example - Configuration template
 
 ## License
 
-MIT
+MIT License
