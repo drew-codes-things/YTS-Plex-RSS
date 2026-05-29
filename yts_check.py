@@ -5,7 +5,7 @@ import os
 import re
 import uuid
 from urllib.parse import quote_plus
-from datetime import datetime
+from datetime import datetime, timezone
 from plexapi.myplex import MyPlexAccount
 from tqdm import tqdm
 from dotenv import load_dotenv
@@ -75,7 +75,6 @@ def is_anime_on_mal(title, year):
         if r.status_code == 200:
             results = r.json().get("data", [])
             for mal_entry in results:
-                # Only treat as anime if the MAL entry is explicitly a Movie.
                 if mal_entry.get("type") != "Movie":
                     continue
                 mal_year = mal_entry.get("year") or (mal_entry.get("aired", {}).get("from") or "")[:4]
@@ -225,10 +224,16 @@ def fetch_movies():
 
 
 def load_missing():
+    if not os.path.exists(MISSING_JSON):
+        return []
     try:
         with open(MISSING_JSON, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError as e:
+        print(f"WARNING: {MISSING_JSON} is corrupted ({e}). Starting with empty list.")
+        return []
+    except Exception as e:
+        print(f"WARNING: Could not read {MISSING_JSON}: {e}. Starting with empty list.")
         return []
 
 
@@ -265,7 +270,6 @@ def main():
     existing_missing = prune_already_on_plex(local_movies, existing_missing)
     save_missing(existing_missing)
 
-    # Key is (raw_title_lower, year) -- matches how new items are keyed below.
     existing_keys = {(item["title"].lower().strip(), item.get("year", 0)) for item in existing_missing}
 
     print("\nStarting YTS scan...")
@@ -294,7 +298,6 @@ def main():
                 skipped_plex += 1
                 continue
 
-            # Key uses the display title that will be stored ("Title (year)") lowercased.
             display_title = f"{title} ({year})"
             key = (display_title.lower().strip(), year)
             if key in existing_keys:
@@ -319,7 +322,7 @@ def main():
                 "size": best.get("size", "Unknown"),
                 "size_bytes": int(best.get("size_bytes", 0)),
                 "magnet": magnet,
-                "added": datetime.now().isoformat(),
+                "added": datetime.now(timezone.utc).isoformat(),
                 "year": year,
             })
             existing_keys.add(key)
