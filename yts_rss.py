@@ -231,7 +231,7 @@ td { padding: 13px 10px; vertical-align: middle; }
 }
 """
 
-HTML_TEMPLATE = """
+HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
