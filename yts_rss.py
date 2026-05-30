@@ -256,7 +256,7 @@ HTML_TEMPLATE = r"""
       <h2>RSS Feed</h2>
       <p>Paste into qBittorrent's RSS reader for auto-download.</p>
       <code style="display:block; background:#2a2a2a; padding:10px 14px; border-radius:6px; word-break:break-all; font-size:0.88rem; margin-bottom:16px;">
-        http://{{ host }}/yts_missing.rss
+        {{ base_url }}/yts_missing.rss
       </code>
       <a href="/yts_missing.rss" class="btn" style="display:block; text-align:center;">Open RSS Feed</a>
     </div>
@@ -467,6 +467,7 @@ paginate();
 @app.route("/")
 def index():
     items = load_missing()
+    base_url = request.host_url.rstrip("/")
     total = len(items)
     total_bytes = sum(item.get("size_bytes") or parse_size_bytes(item.get("size", "")) for item in items)
     total_size = fmt_bytes(total_bytes)
@@ -486,7 +487,7 @@ def index():
         year_range=year_range,
         newest_year=newest_year,
         year_chart=year_chart,
-        host=request.host,
+        base_url=base_url,
         css=Markup(CSS),
     )
 
@@ -527,8 +528,7 @@ def _item_pub_date(item):
 @app.route("/yts_missing.rss")
 def rss():
     items = load_missing()
-    host = request.host
-    base_url = f"http://{host}"
+    base_url = request.host_url.rstrip("/")
 
     rss_items = ""
     for item in items:
