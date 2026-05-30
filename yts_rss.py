@@ -5,6 +5,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape, quoteattr
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -532,20 +533,24 @@ def rss():
     rss_items = ""
     for item in items:
         pub_date = _item_pub_date(item)
-        magnet = item["magnet"]
-        title = item["title"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        infohash = extract_infohash(magnet)
+        magnet = str(item.get("magnet", ""))
+        title = escape(str(item.get("title", "")))
+        infohash = escape(extract_infohash(magnet))
         year_val = item.get("year", "N/A")
+        description = escape(f"Size: {item.get('size', 'Unknown')} | Year: {year_val}")
+        guid = escape(str(item.get("id", "")))
+        magnet_text = escape(magnet)
+        enclosure_url = quoteattr(magnet)
 
         rss_items += f"""
   <item>
     <title>{title}</title>
-    <description>Size: {item.get("size", "Unknown")} | Year: {year_val}</description>
-    <link>{magnet}</link>
-    <guid isPermaLink="false">{item["id"]}</guid>
+    <description>{description}</description>
+    <link>{magnet_text}</link>
+    <guid isPermaLink="false">{guid}</guid>
     <pubDate>{pub_date}</pubDate>
-    <enclosure url="{magnet}" length="{item.get('size_bytes', 0)}" type="application/x-bittorrent"/>
-    <tor:magnetURI>{magnet}</tor:magnetURI>
+    <enclosure url={enclosure_url} length="{item.get('size_bytes', 0)}" type="application/x-bittorrent"/>
+    <tor:magnetURI>{magnet_text}</tor:magnetURI>
     <tor:infoHash>{infohash}</tor:infoHash>
   </item>"""
 
@@ -554,8 +559,8 @@ def rss():
   <channel>
     <title>Star's Missing 1080p YTS Movies</title>
     <description>Auto-generated missing 1080p movies from YTS -> Plex</description>
-    <link>{base_url}</link>
-    <atom:link href="{base_url}/yts_missing.rss" rel="self" type="application/rss+xml"/>
+    <link>{escape(base_url)}</link>
+    <atom:link href={quoteattr(base_url + '/yts_missing.rss')} rel="self" type="application/rss+xml"/>
     <lastBuildDate>{datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")}</lastBuildDate>
 {rss_items}
   </channel>
