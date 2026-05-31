@@ -1,9 +1,10 @@
-from flask import Flask, Response, render_template_string, request, redirect
+from flask import Flask, Response, render_template_string, request, redirect, session
 from markupsafe import Markup
 from collections import Counter
 import json
 import os
 import re
+import secrets
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape, quoteattr
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-key")
 MISSING_JSON = "missing_1080p.json"
 PAGE_SIZE = 50
 
@@ -46,11 +48,32 @@ def parse_size_bytes(size_str):
 
 
 def fmt_bytes(b):
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
         if b < 1024:
             return f"{b:.2f} {unit}"
         b /= 1024
-    return f"{b:.2f} PB"
+    return f"{b:.2f} EB"
+
+
+def is_valid_magnet(magnet):
+    if not magnet:
+        return False
+    return magnet.lower().startswith("magnet:?xt=")
+
+
+def get_csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+def has_valid_csrf(submitted_token):
+    expected = session.get("_csrf_token")
+    if not expected or not submitted_token:
+        return False
+    return secrets.compare_digest(expected, submitted_token)
 
 
 def extract_infohash(magnet):
@@ -278,6 +301,7 @@ HTML_TEMPLATE = r"""
       <span id="bulk-count">0 selected</span>
       <form method="post" action="/delete_bulk" id="bulk-form" style="display:inline">
         <input type="hidden" name="ids" id="bulk-ids-input">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="btn">Remove Selected</button>
       </form>
       <button class="btn btn-secondary" onclick="clearSelection()">Clear</button>
@@ -302,9 +326,16 @@ HTML_TEMPLATE = r"""
           <td style="text-align:center"><span class="badge">{{ item.size }}</span></td>
           <td style="text-align:center; color:#888">{{ item.year }}</td>
           <td style="text-align:center; color:#888; font-size:0.9rem">{{ item.added[:10] }}</td>
-          <td style="text-align:center"><a href="{{ item.magnet }}">Magnet</a></td>
+          <td style="text-align:center">
+            {% if item.valid_magnet %}
+              <a href="{{ item.magnet }}">Magnet</a>
+            {% else %}
+              <span style="color:#888">Invalid</span>
+            {% endif %}
+          </td>
           <td style="text-align:center">
             <form method="post" action="/delete/{{ item.id }}" style="margin:0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button type="submit" class="btn">Remove</button>
             </form>
           </td>
@@ -466,7 +497,15 @@ paginate();
 
 @app.route("/")
 def index():
-    items = load_missing()
+    raw_items = load_missing()
+    items = []
+    for item in raw_items:
+        magnet = str(item.get("magnet", ""))
+        items.append({
+            **item,
+            "magnet": magnet,
+            "valid_magnet": is_valid_magnet(magnet),
+        })
     base_url = request.host_url.rstrip("/")
     total = len(items)
     total_bytes = sum(item.get("size_bytes") or parse_size_bytes(item.get("size", "")) for item in items)
@@ -488,12 +527,15 @@ def index():
         newest_year=newest_year,
         year_chart=year_chart,
         base_url=base_url,
+        csrf_token=get_csrf_token(),
         css=Markup(CSS),
     )
 
 
 @app.route("/delete/<string:item_id>", methods=["POST"])
 def delete(item_id):
+    if not has_valid_csrf(request.form.get("csrf_token")):
+        return Response("Invalid CSRF token", status=403)
     items = [i for i in load_missing() if i.get("id") != item_id]
     save_missing(items)
     return redirect("/")
@@ -501,6 +543,8 @@ def delete(item_id):
 
 @app.route("/delete_bulk", methods=["POST"])
 def delete_bulk():
+    if not has_valid_csrf(request.form.get("csrf_token")):
+        return Response("Invalid CSRF token", status=403)
     raw = request.form.get("ids", "[]")
     try:
         ids = set(json.loads(raw))
@@ -534,6 +578,8 @@ def rss():
     for item in items:
         pub_date = _item_pub_date(item)
         magnet = str(item.get("magnet", ""))
+        if not is_valid_magnet(magnet):
+            continue
         title = escape(str(item.get("title", "")))
         infohash = escape(extract_infohash(magnet))
         year_val = item.get("year", "N/A")
