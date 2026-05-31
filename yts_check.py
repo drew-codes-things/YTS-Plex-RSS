@@ -182,9 +182,14 @@ def fetch_movies():
             print(f"Resuming from page {start_page}...")
 
     params = {"quality": QUALITY, "limit": 50, "page": 1, "sort_by": sort_by, "order": order}
-    r = requests.get(BASE_URL, params=params, timeout=20)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(BASE_URL, params=params, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+    except (requests.RequestException, ValueError) as e:
+        print(f"Failed to fetch first YTS page: {e}")
+        return movies
+
     movie_count = data.get("data", {}).get("movie_count", 0)
     total_pages = (movie_count + 49) // 50
     print(f"YTS total: {movie_count:,} movies across {total_pages} pages")
