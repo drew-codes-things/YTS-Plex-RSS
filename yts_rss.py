@@ -1,6 +1,7 @@
 from flask import Flask, Response, render_template_string, request, redirect, session
 from markupsafe import Markup
 from collections import Counter
+from functools import wraps
 import json
 import os
 import re
@@ -12,23 +13,58 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-key")
+_secret = os.getenv("FLASK_SECRET_KEY")
+if not _secret:
+    raise RuntimeError(
+        "FLASK_SECRET_KEY is not set. "
+        "Set it in your environment before running the server."
+    )
+app.secret_key = _secret
 MISSING_JSON = "missing_1080p.json"
 PAGE_SIZE = 50
+YTS_WEB_USERNAME = (os.getenv("YTS_WEB_USERNAME") or "").strip()
+YTS_WEB_PASSWORD = (os.getenv("YTS_WEB_PASSWORD") or "").strip()
+
+
+def auth_enabled():
+    return bool(YTS_WEB_USERNAME and YTS_WEB_PASSWORD)
+
+
+def requires_auth(view_func):
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not auth_enabled():
+            return view_func(*args, **kwargs)
+        auth = request.authorization
+        if auth and secrets.compare_digest(auth.username or "", YTS_WEB_USERNAME) and secrets.compare_digest(auth.password or "", YTS_WEB_PASSWORD):
+            return view_func(*args, **kwargs)
+        return Response(
+            "Authentication required",
+            status=401,
+            headers={"WWW-Authenticate": 'Basic realm="YTS-RSS"'},
+        )
+    return wrapped
+
+
+def load_missing_with_warning():
+    if not os.path.exists(MISSING_JSON):
+        return [], None
+    try:
+        with open(MISSING_JSON, "r", encoding="utf-8") as f:
+            return json.load(f), None
+    except json.JSONDecodeError as e:
+        warning = f"{MISSING_JSON} is corrupted ({e})."
+        print(f"WARNING: {warning}")
+        return [], warning
+    except Exception as e:
+        warning = f"Could not read {MISSING_JSON}: {e}."
+        print(f"WARNING: {warning}")
+        return [], warning
 
 
 def load_missing():
-    if not os.path.exists(MISSING_JSON):
-        return []
-    try:
-        with open(MISSING_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        print(f"WARNING: {MISSING_JSON} is corrupted ({e}). Serving empty list.")
-        return []
-    except Exception as e:
-        print(f"WARNING: Could not read {MISSING_JSON}: {e}. Serving empty list.")
-        return []
+    items, _ = load_missing_with_warning()
+    return items
 
 
 def save_missing(items):
@@ -39,12 +75,17 @@ def save_missing(items):
 def parse_size_bytes(size_str):
     try:
         parts = size_str.strip().split()
+        if len(parts) < 2:
+            return None
         val = float(parts[0])
         unit = parts[1].upper()
         multipliers = {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
-        return int(val * multipliers.get(unit, 0))
+        factor = multipliers.get(unit)
+        if factor is None:
+            return None
+        return int(val * factor)
     except Exception:
-        return 0
+        return None
 
 
 def fmt_bytes(b):
@@ -94,6 +135,15 @@ body {
     line-height: 1.6;
 }
 .container { max-width: 1600px; margin: 0 auto; padding: 40px 30px; }
+.warning-banner {
+    background: #4a1f1f;
+    border: 1px solid #a94b4b;
+    color: #ffdede;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 0 0 20px 0;
+    font-size: 0.9rem;
+}
 header {
     background-image: url('banner.png');
     background-size: cover;
@@ -272,6 +322,12 @@ HTML_TEMPLATE = r"""
     </div>
 </header>
 <div class="container">
+{% if load_warning %}
+<div class="warning-banner">{{ load_warning }}</div>
+{% endif %}
+{% if invalid_size_count %}
+<div class="warning-banner">{{ invalid_size_count }} item(s) have invalid size values; total size excludes them and RSS length falls back to 0 for those entries.</div>
+{% endif %}
 <div class="layout">
 
   <div>
@@ -496,19 +552,28 @@ paginate();
 
 
 @app.route("/")
+@requires_auth
 def index():
-    raw_items = load_missing()
+    raw_items, load_warning = load_missing_with_warning()
     items = []
+    invalid_size_count = 0
     for item in raw_items:
         magnet = str(item.get("magnet", ""))
+        size_bytes = item.get("size_bytes")
+        if not isinstance(size_bytes, int):
+            size_bytes = parse_size_bytes(item.get("size", ""))
+        if size_bytes is None:
+            size_bytes = 0
+            invalid_size_count += 1
         items.append({
             **item,
             "magnet": magnet,
+            "size_bytes": size_bytes,
             "valid_magnet": is_valid_magnet(magnet),
         })
     base_url = request.host_url.rstrip("/")
     total = len(items)
-    total_bytes = sum(item.get("size_bytes") or parse_size_bytes(item.get("size", "")) for item in items)
+    total_bytes = sum(item.get("size_bytes", 0) for item in items)
     total_size = fmt_bytes(total_bytes)
     years = [item.get("year", 0) for item in items if item.get("year")]
     year_range = f"{min(years)} - {max(years)}" if years else "N/A"
@@ -527,12 +592,15 @@ def index():
         newest_year=newest_year,
         year_chart=year_chart,
         base_url=base_url,
+        load_warning=load_warning,
+        invalid_size_count=invalid_size_count,
         csrf_token=get_csrf_token(),
         css=Markup(CSS),
     )
 
 
 @app.route("/delete/<string:item_id>", methods=["POST"])
+@requires_auth
 def delete(item_id):
     if not has_valid_csrf(request.form.get("csrf_token")):
         return Response("Invalid CSRF token", status=403)
@@ -542,6 +610,7 @@ def delete(item_id):
 
 
 @app.route("/delete_bulk", methods=["POST"])
+@requires_auth
 def delete_bulk():
     if not has_valid_csrf(request.form.get("csrf_token")):
         return Response("Invalid CSRF token", status=403)
@@ -570,6 +639,7 @@ def _item_pub_date(item):
 
 
 @app.route("/yts_missing.rss")
+@requires_auth
 def rss():
     items = load_missing()
     base_url = request.host_url.rstrip("/")
@@ -588,6 +658,11 @@ def rss():
         magnet_text = escape(magnet)
         enclosure_url = quoteattr(magnet)
 
+        enclosure_length = item.get("size_bytes")
+        if not isinstance(enclosure_length, int):
+            parsed_size = parse_size_bytes(item.get("size", ""))
+            enclosure_length = parsed_size if parsed_size is not None else 0
+
         rss_items += f"""
   <item>
     <title>{title}</title>
@@ -595,7 +670,7 @@ def rss():
     <link>{magnet_text}</link>
     <guid isPermaLink="false">{guid}</guid>
     <pubDate>{pub_date}</pubDate>
-    <enclosure url={enclosure_url} length="{item.get('size_bytes', 0)}" type="application/x-bittorrent"/>
+    <enclosure url={enclosure_url} length="{enclosure_length}" type="application/x-bittorrent"/>
     <tor:magnetURI>{magnet_text}</tor:magnetURI>
     <tor:infoHash>{infohash}</tor:infoHash>
   </item>"""
@@ -616,7 +691,11 @@ def rss():
 
 
 if __name__ == "__main__":
+    bind_host = os.getenv("YTS_BIND_HOST", "127.0.0.1")
+    bind_port = int(os.getenv("YTS_PORT", "5000"))
     print("Star's YTS -> PLEX -> RSS Tool")
-    print("   -> Web UI   : http://127.0.0.1:5000")
-    print("   -> RSS Feed : http://127.0.0.1:5000/yts_missing.rss")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    print(f"   -> Web UI   : http://{bind_host}:{bind_port}")
+    print(f"   -> RSS Feed : http://{bind_host}:{bind_port}/yts_missing.rss")
+    if not auth_enabled():
+        print("WARNING: YTS_WEB_USERNAME/YTS_WEB_PASSWORD not set; web auth is disabled.")
+    app.run(host=bind_host, port=bind_port, debug=False)
