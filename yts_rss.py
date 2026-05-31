@@ -2,6 +2,7 @@ from flask import Flask, Response, render_template_string, request, redirect, se
 from markupsafe import Markup
 from collections import Counter
 from functools import wraps
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -9,6 +10,10 @@ import secrets
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape, quoteattr
 from dotenv import load_dotenv
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
 
 load_dotenv()
 
@@ -21,6 +26,7 @@ if not _secret:
     )
 app.secret_key = _secret
 MISSING_JSON = "missing_1080p.json"
+MISSING_LOCK = f"{MISSING_JSON}.lock"
 PAGE_SIZE = 50
 YTS_WEB_USERNAME = (os.getenv("YTS_WEB_USERNAME") or "").strip()
 YTS_WEB_PASSWORD = (os.getenv("YTS_WEB_PASSWORD") or "").strip()
@@ -46,12 +52,26 @@ def requires_auth(view_func):
     return wrapped
 
 
+@contextmanager
+def _missing_file_lock(exclusive=False):
+    with open(MISSING_LOCK, "a+", encoding="utf-8") as lock_handle:
+        if fcntl is not None:
+            lock_mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            fcntl.flock(lock_handle.fileno(), lock_mode)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
 def load_missing_with_warning():
     if not os.path.exists(MISSING_JSON):
         return [], None
     try:
-        with open(MISSING_JSON, "r", encoding="utf-8") as f:
-            return json.load(f), None
+        with _missing_file_lock(exclusive=False):
+            with open(MISSING_JSON, "r", encoding="utf-8") as f:
+                return json.load(f), None
     except json.JSONDecodeError as e:
         warning = f"{MISSING_JSON} is corrupted ({e})."
         print(f"WARNING: {warning}")
@@ -68,8 +88,13 @@ def load_missing():
 
 
 def save_missing(items):
-    with open(MISSING_JSON, "w", encoding="utf-8") as f:
-        json.dump(items, f, indent=2, ensure_ascii=False)
+    temp_path = f"{MISSING_JSON}.tmp"
+    with _missing_file_lock(exclusive=True):
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(items, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, MISSING_JSON)
 
 
 def parse_size_bytes(size_str):
