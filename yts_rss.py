@@ -17,13 +17,7 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
 
 load_dotenv()
 
-app = Flask(__name__)
-_secret = os.getenv("FLASK_SECRET_KEY")
-if not _secret:
-    raise RuntimeError(
-        "FLASK_SECRET_KEY is not set. "
-        "Set it in your environment before running the server."
-    )
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.secret_key = _secret
 MISSING_JSON = "missing_1080p.json"
 MISSING_LOCK = f"{MISSING_JSON}.lock"
